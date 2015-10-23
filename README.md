@@ -1,6 +1,6 @@
 ## Description
 
-opsworks_interactor is a Ruby class that makes it easy to do rolling deploys to Amazon Opsworks. It certainly works for deploying Rails apps and would probably work for any other type of app as well.
+opsworks_interactor is a Ruby class that makes it easy to do zero-downtime rolling deploys to Amazon Opsworks. It certainly works for deploying Rails apps and would probably work for any other type of app as well.
 
 It is designed to solve the common problem of synchronizing deploys to an Opsworks layer with one load balancer and two or more application servers.
 
@@ -49,7 +49,7 @@ This one doesn't do anything special, in fact it does exactly what would happen 
 
 ### Rolling deploys
 
-The second is a rolling deploy and this is where the magic happens.
+The second is a rolling deploy and this is where the zero-downtime magic happens.
 
 To run a single rolling deploy, do it like this:
 
