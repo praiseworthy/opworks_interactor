@@ -1,5 +1,7 @@
 require 'aws-sdk'
 class OpsworksInteractor
+  Aws::Waiters::Errors::TimeoutError = Class.new(Aws::Waiters::Errors::WaiterFailed)
+
   begin
     require 'redis-semaphore'
   rescue LoadError
@@ -46,7 +48,7 @@ class OpsworksInteractor
   # Blocks until AWS confirms that the deploy was successful
   #
   # Returns a Aws::OpsWorks::Types::CreateDeploymentResult
-  def deploy(stack_id:, app_id:, instance_id:)
+  def deploy(stack_id:, app_id:, instance_id:, deploy_timeout: 30.minutes)
     response = @opsworks_client.create_deployment(
       stack_id:     stack_id,
       app_id:       app_id,
@@ -61,10 +63,7 @@ class OpsworksInteractor
 
     log("Deploy process running (id: #{response[:deployment_id]})...")
 
-    @opsworks_client.wait_until(
-      :deployment_successful,
-      deployment_ids: [response[:deployment_id]]
-    )
+    wait_until_deploy_completion(response[:deployment_id], deploy_timeout)
 
     log("✓ deploy completed")
 
@@ -72,6 +71,25 @@ class OpsworksInteractor
   end
 
   private
+
+  # Polls Opsworks for timeout seconds until deployment_id has completed
+  def wait_until_deploy_completion(deployment_id, timeout)
+    started_at = Time.now
+
+    @opsworks_client.wait_until(
+      :deployment_successful,
+      deployment_ids: [deployment_id]
+    ) do |w|
+      # disable max attempts
+      w.max_attempts = nil
+      # poll for a time period, instead of a number of attempts
+      before_wait do |_attempts, _response|
+        if (Time.now - started_at) > timeout
+          raise Aws::Waiters::Errors::TimeoutError
+        end
+      end
+    end
+  end
 
   # Loop through all instances in layer
   # Deregister from ELB (elastic load balancer)
@@ -86,19 +104,21 @@ class OpsworksInteractor
     instances = @opsworks_client.describe_instances(layer_id: layer_id)[:instances]
 
     instances.each do |instance|
-      log("=== Starting deploy for #{instance.hostname} ===")
+      begin
+        log("=== Starting deploy for #{instance.hostname} ===")
 
-      load_balancers = detach_from_elbs(instance: instance)
+        load_balancers = detach_from_elbs(instance: instance)
 
-      deploy(
-        stack_id: stack_id,
-        app_id: app_id,
-        instance_id: instance.instance_id
-      )
+        deploy(
+          stack_id: stack_id,
+          app_id: app_id,
+          instance_id: instance.instance_id
+        )
+      ensure
+        attach_to_elbs(instance: instance, load_balancers: load_balancers) if load_blaancers
 
-      attach_to_elbs(instance: instance, load_balancers: load_balancers)
-
-      log("=== Done deploying on #{instance.hostname} ===\n\n")
+        log("=== Done deploying on #{instance.hostname} ===\n\n")
+      end
     end
 
     log("SUCCESS: completed opsworks deploy for all instances on app #{app_id}")
