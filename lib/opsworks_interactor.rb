@@ -1,7 +1,6 @@
 require 'aws-sdk'
+require 'timeout'
 class OpsworksInteractor
-  Aws::Waiters::Errors::TimeoutError = Class.new(Aws::Waiters::Errors::WaiterFailed)
-
   begin
     require 'redis-semaphore'
   rescue LoadError
@@ -75,18 +74,13 @@ class OpsworksInteractor
   # Polls Opsworks for timeout seconds until deployment_id has completed
   def wait_until_deploy_completion(deployment_id, timeout)
     started_at = Time.now
-
-    @opsworks_client.wait_until(
-      :deployment_successful,
-      deployment_ids: [deployment_id]
-    ) do |w|
-      # disable max attempts
-      w.max_attempts = nil
-      # poll for a time period, instead of a number of attempts
-      before_wait do |_attempts, _response|
-        if (Time.now - started_at) > timeout
-          raise Aws::Waiters::Errors::TimeoutError
-        end
+    Timeout::timeout(timeout) do
+      @opsworks_client.wait_until(
+        :deployment_successful,
+        deployment_ids: [deployment_id]
+      ) do |w|
+        # disable max attempts
+        w.max_attempts = nil
       end
     end
   end
@@ -115,7 +109,7 @@ class OpsworksInteractor
           instance_id: instance.instance_id
         )
       ensure
-        attach_to_elbs(instance: instance, load_balancers: load_balancers) if load_blaancers
+        attach_to_elbs(instance: instance, load_balancers: load_balancers) if load_balancers
 
         log("=== Done deploying on #{instance.hostname} ===\n\n")
       end
