@@ -98,6 +98,9 @@ class OpsworksInteractor
     instances = @opsworks_client.describe_instances(layer_id: layer_id)[:instances]
 
     instances.each do |instance|
+      # Only deploy to online instances
+      next unless instance.status == 'online'
+
       begin
         log("=== Starting deploy for #{instance.hostname} ===")
 
